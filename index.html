@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Calculadora GCAP</title>
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+  <style>
+    .container { max-width: 800px; margin-top: 50px; }
+    .result-block { margin-top: 20px; padding: 15px; border: 1px solid #ccc; border-radius: 5px; }
+    .compras-block { background-color: #e6ffe6; }
+    .vendas-block { background-color: #ffe6e6; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>Calculadora GCAP</h1>
+  <p>Importe seus dados de compras e vendas de ações para calcular os resultados do GCAP.</p>
+
+  <!-- Formulário para importar compras -->
+  <form id="form-import-compra">
+    <h3>Importar Compras</h3>
+    <div class="form-group">
+      <label for="fileCompra">Selecionar arquivo Excel:</label>
+      <input type="file" class="form-control-file" id="fileCompra" accept=".xlsx,.xls">
+    </div>
+    <button type="submit" class="btn btn-primary">Importar Compras</button>
+  </form>
+
+  <hr>
+
+  <!-- Formulário para importar vendas -->
+  <form id="form-import-venda">
+    <h3>Importar Vendas</h3>
+    <div class="form-group">
+      <label for="fileVenda">Selecionar arquivo Excel:</label>
+      <input type="file" class="form-control-file" id="fileVenda" accept=".xlsx,.xls">
+    </div>
+    <button type="submit" class="btn btn-primary">Importar Vendas</button>
+  </form>
+
+  <hr>
+
+  <!-- Resultados -->
+  <div id="resultados">
+    <h3>Resultados</h3>
+    <div id="resultadoGcap"></div>
+    <div id="compras"></div>
+    <div id="vendas"></div>
+    <button id="btnCalcular" class="btn btn-success mt-3">Calcular Resultados</button>
+  </div>
+
+</div>
+
+<!-- jQuery e Bootstrap JS -->
+<script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.4/dist/umd/popper.min.js"></script>
+<script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+<!-- ExcelJS para manipulação de arquivos Excel -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.1.1/exceljs.min.js"></script>
+
+<!-- Script personalizado -->
+<script>
+  // Dados de compras e vendas
+  let compras = [];
+  let vendas = [];
+
+  // Função para importar compras de um arquivo Excel
+  document.getElementById('form-import-compra').addEventListener('submit', function(event) {
+    event.preventDefault();
+    
+    const input = document.getElementById('fileCompra');
+    const file = input.files[0];
+
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const data = new Uint8Array(e.target.result);
+        const workbook = new ExcelJS.Workbook();
+        workbook.xlsx.load(data).then(function() {
+          const worksheet = workbook.getWorksheet(1);
+          compras = [];
+          worksheet.eachRow(function(row, rowNumber) {
+            if (rowNumber > 1) { // Ignorar cabeçalho
+              let dataCompra = row.getCell(2).value;
+              compras.push({
+                nomeAcao: row.getCell(1).value,
+                data: dataCompra, // Data da compra sem formatação
+                quantidade: parseFloat(row.getCell(3).value),
+                ptax: parseFloat(row.getCell(4).value),
+                preco: parseFloat(row.getCell(5).value),
+                dividendos: parseFloat(row.getCell(6).value || 0)
+              });
+            }
+          });
+          // Exibir compras importadas
+          exibirCompras();
+        });
+      };
+      reader.readAsArrayBuffer(file);
+    }
+  });
+
+  // Função para importar vendas de um arquivo Excel
+document.getElementById('form-import-venda').addEventListener('submit', function(event) {
+  event.preventDefault();
+  
+  const input = document.getElementById('fileVenda');
+  const file = input.files[0];
+
+  if (file) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const data = new Uint8Array(e.target.result);
+      const workbook = new ExcelJS.Workbook();
+      workbook.xlsx.load(data).then(function() {
+        const worksheet = workbook.getWorksheet(1);
+        vendas = [];
+        worksheet.eachRow(function(row, rowNumber) {
+          if (rowNumber > 1) { // Ignorar cabeçalho
+            let dataVenda = row.getCell(2).value;
+            vendas.push({
+              nomeAcao: row.getCell(1).value,
+              data: dataVenda, // Data da venda sem formatação
+              quantidade: parseFloat(row.getCell(3).value.toString().replace(',', '.')), // Converter para número corretamente
+              ptax: parseFloat(row.getCell(4).value),
+              preco: parseFloat(row.getCell(5).value),
+              dividendos: parseFloat(row.getCell(6).value || 0)
+            });
+          }
+        });
+        // Exibir vendas importadas
+        exibirVendas();
+      });
+    };
+    reader.readAsArrayBuffer(file);
+  }
+});
+
+
+  // Função para calcular resultados para GCAP
+function calcularResultados() {
+  let resultadosHtml = '';
+
+  // Agrupar compras por ação
+  const comprasAgrupadas = agruparPorAcao(compras);
+  // Agrupar vendas por ação
+  const vendasAgrupadas = agruparPorAcao(vendas);
+
+  // Calcular e exibir resultados para cada ação
+  Object.keys(comprasAgrupadas).forEach(acao => {
+    const comprasDaAcao = comprasAgrupadas[acao];
+    const vendasDaAcao = vendasAgrupadas[acao] || [];
+
+    let totalQuantidadeComprada = 0;
+    let totalValorComprado = 0;
+    let totalDividendosReinvestidos = 0;
+    let ptaxCompra = 0;
+
+    comprasDaAcao.forEach(compra => {
+      totalQuantidadeComprada += compra.quantidade;
+      totalValorComprado += compra.quantidade * compra.preco;
+      totalDividendosReinvestidos += compra.dividendos;
+      ptaxCompra += compra.ptax; // Soma dos PTAX para média
+    });
+
+    let precoMedioCompra = totalValorComprado / totalQuantidadeComprada;
+    ptaxCompra /= comprasDaAcao.length; // Média dos PTAX de compra
+
+    let totalQuantidadeVendida = 0;
+    let totalValorVendido = 0;
+    let ptaxVenda = 0;
+
+    vendasDaAcao.forEach(venda => {
+      totalQuantidadeVendida += venda.quantidade;
+      totalValorVendido += venda.quantidade * venda.preco;
+      ptaxVenda += venda.ptax; // Soma dos PTAX para média
+    });
+
+    let ganhoCapital = totalValorVendido - totalValorComprado;
+    ptaxVenda /= vendasDaAcao.length; // Média dos PTAX de venda
+
+    // Verificar se a quantidade vendida é menor que a quantidade comprada
+    if (totalQuantidadeVendida < totalQuantidadeComprada) {
+      resultadosHtml += `
+        <div class="alert alert-warning" role="alert">
+          Atenção: A venda média ainda não completou a venda total das compras de ${acao}.
+        </div>
+      `;
+    }
+
+    resultadosHtml += `
+      <div class="result-block compras-block">
+        <h4>Resultados de Compras - ${acao}</h4>
+        <p>Data da Compra: ${comprasDaAcao.length > 0 && comprasDaAcao[0].data ? comprasDaAcao[0].data : ''}</p>
+        <p>Quantidade Total Comprada: ${totalQuantidadeComprada.toFixed(8)}</p>
+        <p>Valor Total Comprado: USD ${totalValorComprado.toFixed(2)}</p>
+        <p>Preço Médio de Compra: USD ${precoMedioCompra.toFixed(2)} (PTAX Médio de Compra: ${ptaxCompra.toFixed(4)})</p>
+        <p>Dividendos Reinvestidos: R$ ${totalDividendosReinvestidos.toFixed(2)}</p>
+      </div>
+    `;
+
+    resultadosHtml += `
+      <div class="result-block vendas-block">
+        <h4>Resultados de Vendas - ${acao}</h4>
+        <p>Data da Venda: ${vendasDaAcao.length > 0 && vendasDaAcao[0].data ? vendasDaAcao[0].data : ''}</p>
+        <p>Quantidade Total Vendida: ${totalQuantidadeVendida.toFixed(8)}</p>
+        <p>Valor Total Vendido: USD ${totalValorVendido.toFixed(2)}</p>
+        <p>Ganho de Capital: USD ${ganhoCapital.toFixed(2)}</p>
+        <p>PTAX Médio de Venda: ${ptaxVenda.toFixed(4)}</p>
+      </div>
+    `;
+  });
+
+  document.getElementById('resultadoGcap').innerHTML = resultadosHtml;
+}
+
+  // Função para agrupar transações por ação
+  function agruparPorAcao(transacoes) {
+    const agrupado = {};
+    transacoes.forEach(transacao => {
+      const nomeAcao = transacao.nomeAcao;
+      if (!agrupado[nomeAcao]) {
+        agrupado[nomeAcao] = [];
+      }
+      agrupado[nomeAcao].push(transacao);
+    });
+    return agrupado;
+  }
+
+  // Função para exibir compras
+  function exibirCompras() {
+    let comprasHtml = '<h4>Compras Importadas</h4>';
+    compras.forEach((compra, index) => {
+      comprasHtml += `
+        <div>
+          <p>Compra ${index + 1} - Ação: ${compra.nomeAcao}, Data: ${compra.data ? compra.data : 'Data Inválida'}, Quantidade: ${compra.quantidade}, Preço: R$ ${compra.preco}, PTAX: ${compra.ptax}, Dividendos: R$ ${compra.dividendos}</p>
+        </div>
+      `;
+    });
+    document.getElementById('compras').innerHTML = comprasHtml;
+  }
+
+  // Função para exibir vendas
+  function exibirVendas() {
+    let vendasHtml = '<h4>Vendas Importadas</h4>';
+    vendas.forEach((venda, index) => {
+      vendasHtml += `
+        <div>
+          <p>Venda ${index + 1} - Ação: ${venda.nomeAcao}, Data: ${venda.data ? venda.data : 'Data Inválida'}, Quantidade: ${venda.quantidade}, Preço: R$ ${venda.preco}, PTAX: ${venda.ptax}, Dividendos: R$ ${venda.dividendos}</p>
+        </div>
+      `;
+    });
+    document.getElementById('vendas').innerHTML = vendasHtml;
+  }
+
+  // Adicionar evento de clique ao botão de calcular
+  document.getElementById('btnCalcular').addEventListener('click', calcularResultados);
+</script>
+</body>
+</html>
+
